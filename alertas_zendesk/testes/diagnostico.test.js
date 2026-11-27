@@ -33,6 +33,10 @@ assert.deepStrictEqual(causas(base({ 33907416823451: 'ticket_field_motivo_client
 assert.deepStrictEqual(causas(base({ 33462263487643: '' })), ['TIPO_VENDA_VAZIO']);
 assert.deepStrictEqual(causas(base(), V3P), ['TIPO_VENDA_DIVERGENTE']);
 assert.deepStrictEqual(causas(base({ 33462263487643: 'ticket_field_tipo_de_venda_1p_marketplace' })), []);
+// Seller - Iguana Fix é 1P
+assert.deepStrictEqual(causas(base({ 33462263487643: 'ticket_field_tipo_de_venda_3p_iguanafix' })), []);
+assert.deepStrictEqual(causas(base({ 33462263487643: 'ticket_field_tipo_de_venda_3p_iguanafix' }), V3P), ['TIPO_VENDA_DIVERGENTE']);
+assert.deepStrictEqual(causas(base({ 33462263487643: 'ticket_field_tipo_de_venda_3p' }), V3P), []);
 // tags
 assert.deepStrictEqual(causas(base({}, ['dentro_do_prazo_30dias_assistencia'])), ['ASSISTENCIA_30D']);
 assert.deepStrictEqual(causas(base({}, ['integracao_marvin_falha'])), ['FALHA_SEM_MOTIVO']);

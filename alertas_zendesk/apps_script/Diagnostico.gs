@@ -56,10 +56,16 @@ var DIAG = {
   // View em que "pedido não integrado" não é listado, só contado.
   VIEWS_NAO_INTEGRADO: [58898794602907], // 1P - Falha ao integrar no legado
 
-  // Prefixo do valor de "Tipo de venda" esperado em cada View (1P ou 3P).
+  // Valores de "Tipo de venda" aceitos em cada View.
+  // Seller - Iguana Fix (ticket_field_tipo_de_venda_3p_iguanafix) é 1P, apesar do "3p" no valor.
+  TIPOS_VENDA_1P: [
+    'ticket_field_tipo_de_venda_1p', 'ticket_field_tipo_de_venda_1p_casatema',
+    'ticket_field_tipo_de_venda_1p_marketplace', 'ticket_field_tipo_de_venda_3p_iguanafix'
+  ],
+  TIPOS_VENDA_3P: ['ticket_field_tipo_de_venda_3p'],
   TIPO_VENDA_ESPERADO: {
-    58898794602907: '1p', 58898612845339: '1p', 58898823649819: '1p',
-    58899130156699: '3p', 58898999335835: '3p'
+    58898794602907: '1P', 58898612845339: '1P', 58898823649819: '1P',
+    58899130156699: '3P', 58898999335835: '3P'
   },
 
   MAX_TICKETS_POR_CAUSA: 5 // quantos números aparecem ao lado de cada causa no resumo
@@ -158,8 +164,8 @@ function diagnosticarTicket_(ticket, viewId) {
   if (diagVazio_(tipo)) {
     causas.push('TIPO_VENDA_VAZIO');
   } else if (viewId && DIAG.TIPO_VENDA_ESPERADO[viewId]) {
-    var esperado = DIAG.TIPO_VENDA_ESPERADO[viewId];
-    if (String(tipo).indexOf('ticket_field_tipo_de_venda_' + esperado) !== 0) causas.push('TIPO_VENDA_DIVERGENTE');
+    var aceitos = DIAG.TIPO_VENDA_ESPERADO[viewId] === '1P' ? DIAG.TIPOS_VENDA_1P : DIAG.TIPOS_VENDA_3P;
+    if (aceitos.indexOf(String(tipo)) === -1) causas.push('TIPO_VENDA_DIVERGENTE');
   }
 
   // Pedidos
