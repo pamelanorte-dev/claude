@@ -127,10 +127,12 @@ function executarAlerta_(janela, isFechamentoDia) {
 
   const blocosMensagem = [];
   let somaTotalDia = 0;
+  const resumoFilas = []; // todas as filas lidas, inclusive as com 0 (vai no resumo do fechamento)
 
   filasAvaliacao.forEach(fila => {
     const total = fila.tickets.length;
     Logger.log(`[${fila.titulo}] Total encontrado: ${total}`);
+    resumoFilas.push({ titulo: fila.titulo, total });
 
     if (total < minimoExigido) {
       return;
@@ -181,14 +183,21 @@ function executarAlerta_(janela, isFechamentoDia) {
   const dataFormatada = Utilities.formatDate(new Date(), CFG.TZ, 'dd/MM/yyyy');
 
   if (isFechamentoDia) {
-    if (somaTotalDia === 0) {
-      mensagens.push(`📊 *Fechamento Cancelamento (${janela} — ${dataFormatada})*\n\n✅ Nenhum ticket registrado nos cenários hoje${falhasLeitura.length ? ' (nas views que puderam ser lidas)' : ''}.`);
-    } else {
-      mensagens.push(`📊 *Fechamento Cancelamento (${janela} — ${dataFormatada})*\n` +
-        `*Total acumulado no dia: ${somaTotalDia} ticket(s)* em ${blocosMensagem.length} tema(s) — detalhes nas mensagens a seguir.`);
-      blocosMensagem.forEach(b => mensagens.push(
-        `📊 *Fechamento Cancelamento (${janela} — ${dataFormatada}) — ${b.titulo}*\n${b.bloco}`));
-    }
+    // Resumo com todas as filas: as que têm 0 aparecem como "0 erros encontrados"
+    const linhasResumo = resumoFilas.map(f => f.total === 0
+      ? `• ${f.titulo}: ✅ 0 erros encontrados`
+      : `• ${f.titulo}: *${f.total} ticket(s)*`);
+    falhasLeitura.forEach(f => linhasResumo.push(`• ${f.view.nome}: 🔴 não foi possível ler a view`));
+
+    let resumo = `📊 *Fechamento Cancelamento (${janela} — ${dataFormatada})*\n`;
+    resumo += somaTotalDia === 0
+      ? `✅ Nenhum ticket registrado nos cenários hoje${falhasLeitura.length ? ' (nas views que puderam ser lidas)' : ''}.\n`
+      : `*Total acumulado no dia: ${somaTotalDia} ticket(s)* em ${blocosMensagem.length} tema(s) — detalhes nas mensagens a seguir.\n`;
+    resumo += linhasResumo.join('\n');
+    mensagens.push(resumo);
+
+    blocosMensagem.forEach(b => mensagens.push(
+      `📊 *Fechamento Cancelamento (${janela} — ${dataFormatada}) — ${b.titulo}*\n${b.bloco}`));
   } else {
     blocosMensagem.forEach(b => mensagens.push(
       `🚨 *Alerta Cancelamento (${janela}) — ${b.titulo}*\n${b.bloco}`));
@@ -209,8 +218,20 @@ function executarAlerta_(janela, isFechamentoDia) {
     return;
   }
 
-  mensagens.forEach(texto => enviarGoogleChat_(webhookUrl, texto));
-  Logger.log(`Janela ${janela}: ${mensagens.length} mensagem(ns) enviada(s).`);
+  // Tenta enviar todas; se alguma falhar, as outras ainda saem e a execução fica como Falha no fim
+  const errosEnvio = [];
+  mensagens.forEach((texto, i) => {
+    try {
+      enviarGoogleChat_(webhookUrl, texto);
+    } catch (e) {
+      Logger.log(`Mensagem ${i + 1} não enviada: ${e.message}`);
+      errosEnvio.push(e.message);
+    }
+  });
+  Logger.log(`Janela ${janela}: ${mensagens.length - errosEnvio.length} de ${mensagens.length} mensagem(ns) enviada(s).`);
+  if (errosEnvio.length) {
+    throw new Error(`${errosEnvio.length} mensagem(ns) não enviada(s) ao Google Chat. Primeiro erro: ${errosEnvio[0]}`);
+  }
 }
 
 /* ---------- Consulta Paginada na View do Zendesk ---------- */
@@ -303,17 +324,35 @@ function enviarGoogleChat_(webhookUrl, texto) {
   if (texto.length > 4000) {
     texto = texto.slice(0, 3900).replace(/\n[^\n]*$/, '') + '\n_(mensagem cortada — veja a planilha ou a view)_';
   }
-  const r = UrlFetchApp.fetch(webhookUrl, {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify({ text: texto }),
-    muteHttpExceptions: true,
-  });
+  // O webhook do Google Chat aceita ~1 mensagem por segundo por Space (acima disso, erro 429).
+  // Espera entre envios e, em 429 ou 5xx, tenta de novo com espera crescente (2s, 5s, 10s).
+  const ESPERAS_MS = [2000, 5000, 10000];
+  let r = null;
+  for (let tentativa = 0; tentativa <= ESPERAS_MS.length; tentativa++) {
+    const desdeUltimo = Date.now() - ultimoEnvioChatMs_;
+    if (desdeUltimo < 1500) Utilities.sleep(1500 - desdeUltimo);
+
+    r = UrlFetchApp.fetch(webhookUrl, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ text: texto }),
+      muteHttpExceptions: true,
+    });
+    ultimoEnvioChatMs_ = Date.now();
+
+    const code = r.getResponseCode();
+    if (code !== 429 && code < 500) break;
+    if (tentativa < ESPERAS_MS.length) {
+      Logger.log(`Google Chat respondeu ${code}; nova tentativa em ${ESPERAS_MS[tentativa] / 1000}s.`);
+      Utilities.sleep(ESPERAS_MS[tentativa]);
+    }
+  }
 
   if (r.getResponseCode() >= 400) {
     throw new Error(`Falha ao postar no Google Chat (${r.getResponseCode()}): ${r.getContentText().slice(0, 300)}`);
   }
 }
+let ultimoEnvioChatMs_ = 0; // horário do último envio ao Google Chat nesta execução
 
 /* ---------- Planilha (> 10 tickets) ---------- */
 function criarPlanilha_(nomeFila, casos, incluirSessao) {

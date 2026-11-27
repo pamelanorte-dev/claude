@@ -42,7 +42,7 @@ Filas resultantes:
 |---|---|---|---|
 | 10h | `alerta10h` | criados a partir de 19/11/2026 00:00 (BRT) | por fila com **5 ou mais** tickets |
 | 13h30 | `alerta13h30` | criados a partir de 19/11/2026 00:00 (BRT) | por fila com **5 ou mais** tickets |
-| 17h (fechamento) | `alerta17h` | criados **no dia** (00:00 BRT) | por fila com **1 ou mais**; se zero no total, posta "✅ Nenhum ticket" |
+| 17h (fechamento) | `alerta17h` | criados **no dia** (00:00 BRT) | resumo com **todas as filas** (as zeradas aparecem como "✅ 0 erros encontrados") + uma mensagem por fila com **1 ou mais** |
 
 - **Todos os dias, inclusive fim de semana** (decisão em 19/11).
 - Os gatilhos do Apps Script disparam com folga de até ±15 min (fuso America/Sao_Paulo).
@@ -84,6 +84,7 @@ Filas resultantes:
   - O script tenta mais 1 vez em caso de 429 ou 5xx.
   - Se continuar falhando, a View fica **fora da rodada**, sem usar leitura parcial.
   - Sai uma mensagem `🔴 … falha ao ler N view(s)` com o link de cada View e o motivo (401/403 sem autorização, 404 View não encontrada, erro da API, erro de conexão).
+- **Google Chat 429 (limite ~1 mensagem/s por Space):** o envio espera 1,5 s entre mensagens e repete em 429/5xx (2 s, 5 s, 10 s). Se ainda falhar, as demais mensagens saem e a execução fica como **Falha** no fim. Era a causa das falhas de 24 a 27/11.
 - Outros erros (ex.: falha ao criar a planilha) aparecem como **Falha** em Execuções.
 
 ## 6. Credenciais
@@ -137,6 +138,8 @@ O token OAuth do Zendesk (fluxo de autorização da biblioteca OAuth2) também f
 | 27/11/2026 | Diagnóstico de possíveis causas por ticket e resumo por fila (`Diagnostico.gs`). |
 | 27/11/2026 | Pedido não integrado: só volume na View 1P Falha, mas conta no mínimo de 5; com a tag de 48h, é listado como problema. |
 | 27/11/2026 | Seller - Iguana Fix é tratado como 1P na conferência de tipo de venda. |
+| 27/11/2026 | Falhas de 24 a 27/11 eram 429 do Google Chat (mensagens rápidas demais). Envio passou a esperar entre mensagens e repetir. |
+| 27/11/2026 | Fechamento 17h lista todas as filas, com "✅ 0 erros encontrados" nas zeradas. |
 
 ## 10. Pendências
 
