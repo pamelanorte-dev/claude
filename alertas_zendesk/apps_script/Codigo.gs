@@ -138,25 +138,38 @@ function executarAlerta_(janela, isFechamentoDia) {
 
     somaTotalDia += total;
 
-    const casos = fila.tickets.map(t => formatarCaso_(subdomain, t));
+    // Pedido não integrado (View 1P Falha): conta no total e no mínimo, mas não é listado.
+    // Volta para a lista se também tiver a tag de "resolvido após 48h" (Diagnostico.gs).
+    const sep = separarNaoIntegrados_(fila.tickets, fila.viewId);
+    const casos = sep.listar.map(t => formatarCaso_(subdomain, t, fila.viewId));
     let urlPlanilha = null;
 
-    if (total > CFG.MAX_LISTA) {
+    if (casos.length > CFG.MAX_LISTA) {
       urlPlanilha = criarPlanilha_(fila.nomePlanilha, casos, fila.destacarSessao);
     }
 
-    const amostra = casos.slice(0, CFG.MAX_LISTA).map(c => {
+    const montarAmostra = comCausas => casos.slice(0, CFG.MAX_LISTA).map(c => {
       const extraSessao = (fila.destacarSessao && c.id_sessao)
         ? ` | Sessão: *${c.id_sessao}*`
         : '';
-      return `• *<${c.link}|#${c.ticket}>*${extraSessao} — ${c.assunto} _(${c.criado_em})_`;
+      const extraCausas = (comCausas && c.causas) ? ` — ⚠️ _${c.causas}_` : '';
+      return `• *<${c.link}|#${c.ticket}>*${extraSessao} — ${c.assunto} _(${c.criado_em})_${extraCausas}`;
     }).join('\n');
+    // Google Chat aceita até 4096 caracteres: se passar, tira as causas de cada linha (o resumo continua)
+    let amostra = montarAmostra(true);
+    if (amostra.length > 2000) amostra = montarAmostra(false);
 
     const linkView = `https://${subdomain}.zendesk.com/agent/filters/${fila.viewId}`;
 
-    let bloco = `*${total} ticket(s)*\n${amostra}`;
+    let bloco = `*${total} ticket(s)*`;
+    const blocoNI = blocoNaoIntegrado_(sep);
+    if (blocoNI) bloco += `\n${blocoNI}`;
+    if (casos.length) {
+      bloco += `\n${amostra}`;
+      bloco += `\n\n${blocoCausas_(sep.listar, fila.viewId)}`;
+    }
     if (urlPlanilha) {
-      bloco += `\n📄 _Lista completa (${total} casos):_ <${urlPlanilha}|Abrir planilha>`;
+      bloco += `\n📄 _Lista completa (${casos.length} casos):_ <${urlPlanilha}|Abrir planilha>`;
     }
     bloco += `\n👉 _Acompanhe os casos aqui:_ <${linkView}|Abrir view no Zendesk>`;
 
@@ -270,8 +283,9 @@ function classificarTickets3PFalha_(tickets) {
 }
 
 /* ---------- Formatação de Ticket ---------- */
-function formatarCaso_(subdomain, t) {
+function formatarCaso_(subdomain, t, viewId) {
   return {
+    causas: causasCurtas_(t, viewId), // Diagnostico.gs
     ticket: t.id,
     link: `https://${subdomain}.zendesk.com/agent/tickets/${t.id}`,
     assunto: t.subject || 'Sem assunto',
@@ -285,6 +299,10 @@ function formatarCaso_(subdomain, t) {
 
 /* ---------- Envio Google Chat ---------- */
 function enviarGoogleChat_(webhookUrl, texto) {
+  // Última proteção do limite de 4096 caracteres: corta em fim de linha
+  if (texto.length > 4000) {
+    texto = texto.slice(0, 3900).replace(/\n[^\n]*$/, '') + '\n_(mensagem cortada — veja a planilha ou a view)_';
+  }
   const r = UrlFetchApp.fetch(webhookUrl, {
     method: 'post',
     contentType: 'application/json',
@@ -304,12 +322,12 @@ function criarPlanilha_(nomeFila, casos, incluirSessao) {
   const sh = ss.getSheets()[0];
 
   const cab = incluirSessao
-    ? ['Ticket', 'ID Sessão Mensageria', 'Link', 'Assunto', 'Status', 'Criado em', 'Atualizado em', 'Tags']
-    : ['Ticket', 'Link', 'Assunto', 'Status', 'Criado em', 'Atualizado em', 'Tags'];
+    ? ['Ticket', 'ID Sessão Mensageria', 'Link', 'Assunto', 'Possíveis causas', 'Status', 'Criado em', 'Atualizado em', 'Tags']
+    : ['Ticket', 'Link', 'Assunto', 'Possíveis causas', 'Status', 'Criado em', 'Atualizado em', 'Tags'];
 
   const linhas = casos.map(c => incluirSessao
-    ? [c.ticket, c.id_sessao, c.link, c.assunto, c.status, c.criado_em, c.atualizado_em, c.tags]
-    : [c.ticket, c.link, c.assunto, c.status, c.criado_em, c.atualizado_em, c.tags]
+    ? [c.ticket, c.id_sessao, c.link, c.assunto, c.causas, c.status, c.criado_em, c.atualizado_em, c.tags]
+    : [c.ticket, c.link, c.assunto, c.causas, c.status, c.criado_em, c.atualizado_em, c.tags]
   );
 
   sh.getRange(1, 1, 1, cab.length).setValues([cab]).setFontWeight('bold');
